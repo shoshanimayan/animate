@@ -1,0 +1,24 @@
+.app {
+    display: flex;
+    height: 100vh;
+  }
+  
+  .panel {
+    flex: 1;
+    padding: 20px;
+  }
+  
+  .left-panel {
+    border-right: 1px solid #ccc;
+  }
+  
+  .right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  canvas {
+    width: 100% !important;
+    height: 100% !important;
+  }
