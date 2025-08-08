@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { Vector3 } from 'three'
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
+
 
 import "./styles.css";
 
@@ -11,43 +14,127 @@ function Model({ url }) {
   return <primitive object={scene} />;
 }
 
-function Scene({ orbitControlsRef, isRecording, setAnimation ,clip,setClip}) {
+function Scene({ orbitControlsRef, isRecording, setAnimation ,clip,setClip, clipName}) {
 
 
 
-  function CamRecord({orbitControlsRef, isRecording, setRecord,clip,setClip})
+  function CamRecord({orbitControlsRef, isRecording, setRecord,clip,setClip,clipName})
   {
     const [index,setIndex]= useState(0);
+    const { gl } = useThree();
+    const canvas = gl.domElement;
+
+
     useEffect(()=>{console.log(clip)},[clip])
     const vec = new Vector3()
+    const ffmpegRef = useRef(new FFmpeg());
+    const [loaded, setLoaded] = useState(false);
+const videoRef = useRef(null);
+    const messageRef = useRef(null);
 
-    useFrame((state,delta)=>{
-      
-      if(!isRecording)
-      {
-        if(clip.length>0)
-        {
-          if(index<clip.length)
-          {
-            orbitControlsRef.current.object.position.lerp(vec.set(clip[index].x,clip[index].y,clip[index].z),delta*5)
-            setIndex(prev=>
-            {
-              prev++;
-              setIndex(prev);
+      useEffect(() => {
+             const loadFFmpeg = async () => {
+        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd'
+        const ffmpeg = ffmpegRef.current;
+       
+        // toBlobURL is used to bypass CORS issue, urls with the same
+        // domain can be used directly.
+        await ffmpeg.load({
+            coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+            wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+        });
+        setLoaded(true);
+    }
+            if(!loaded){
+            loadFFmpeg();
             }
-            )
-          }
-          else
+        }, []);
+    
+        const  deleteFiles= async()=>{
+         for(let i=0;i<index+1;i++)
           {
-
-            setClip([]);
-            setIndex(0)
+            await ffmpegRef.current.deleteFile( `frame_${String(index).padStart(6,'0')}`); 
+    
           }
-
+          setIndex(0)
+    
         }
+    
+        const saveFile= async(name,file)=>{
+                await ffmpegRef.current.writeFile(name, file);
+    
+        }
+    
+        const exportToVideo=async()=>{
+       // await delay(2000)
+        const exec = await ffmpegRef.current.exec([
+         
+            '-i','frame_%06d.png' ,
+            '-c:v', 'libx264', 
+            '-pix_fmt', 'yuv420p', 
+            "output.mp4" ]
+        );
+        if(exec)
+        {
           
-      }
-  })
+          ffmpegRef.current.readFile("output.mp4");
+        }
+       // console.log(1)
+           //    await delay(2000)
+//await ffmpegRef.current.ffprobe(["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", "output.mp4", "-o", "output.txt"]);
+//const data = ffmpeg.readFile("output.txt");
+    //const fileData = await ffmpegRef.current.readFile("output.mp4");
+        //console.log(fileData)
+       
+    }
+
+    function delay(ms){
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    const handleDownload = (dataUrl) => {
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = "output.png";
+    document.body.appendChild(link); // Append to body
+    link.click();
+    document.body.removeChild(link); // Remove from body
+  };
+        useFrame((state,delta)=>{
+          
+          if(!isRecording)
+          {
+            if(clip.length>0)
+            {
+              if(index<clip.length)
+              {
+                orbitControlsRef.current.object.position.lerp(vec.set(clip[index].x,clip[index].y,clip[index].z),delta*5)
+                if(loaded)
+                {
+                  const dataURL = canvas.toDataURL('image/png');
+                  console.log(dataURL)
+                 // handleDownload(dataURL)
+                  saveFile(`frame_${String(index).padStart(6,'0')}`, dataURL)
+                }   
+                setIndex(prev=>
+                {
+                  prev++;
+                  setIndex(prev);
+                }
+                )
+              }
+              else
+              {
+    
+                setClip([]);
+                exportToVideo();
+              //  deleteFiles();
+              }
+    
+            }
+              
+          }
+      })
     return (<OrbitControls
       ref={orbitControlsRef}
       clip= {clip}
@@ -98,7 +185,7 @@ function Scene({ orbitControlsRef, isRecording, setAnimation ,clip,setClip}) {
   return (
 
 
-    <Canvas>
+    <Canvas gl={{ preserveDrawingBuffer: true }}>
       <ambientLight intensity={3.5} />
       <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} />
       <Model url="https://modelviewer.dev/shared-assets/models/Astronaut.glb" />
@@ -114,6 +201,7 @@ function App() {
   const [animations, setAnimations] = useState([]);
   const [animation, setAnimation] = useState([]);
   const [playedClip, setPlayedClip] = useState([]);
+  const [currentName, setCurrentName] = useState("");
 
   const orbitControlsRef = useRef();
 
@@ -149,6 +237,7 @@ function App() {
           setAnimation={setAnimation}
           clip={playedClip}
           setClip={setPlayedClip}
+          clipName={currentName}
         />
       </div>
       <div className="panel right-panel">
@@ -189,6 +278,7 @@ function App() {
                   <button
                     onClick={() => {
                       console.log(a.clip);
+                      setCurrentName(a.name)
                       setPlayedClip(a.clip)
                     }}
                   >

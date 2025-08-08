@@ -4,6 +4,8 @@
   "homepage": "https://shoshanimayan.github.io/animate",
   "private": true,
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@react-three/drei": "^9.118.0",
     "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^13.4.0",
