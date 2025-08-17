@@ -1,25 +1,66 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas ,useThree} from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { Vector3 } from 'three'
-
 import "./styles.css";
+
+const Backend = `http://localhost:8000` 
 
 function Model({ url }) {
   const { scene } = useGLTF(url);
   return <primitive object={scene} />;
 }
 
-function Scene({ orbitControlsRef, isRecording, setAnimation ,clip,setClip}) {
+function Scene({ orbitControlsRef, isRecording, setAnimation ,clip,setClip,exportVid=false, resetExportVideo}) {
 
 
 
-  function CamRecord({orbitControlsRef, isRecording, setRecord,clip,setClip})
+  function CamRecord({orbitControlsRef, isRecording, setRecord,clip,setClip,exportVid=false, resetExportVideo})
   {
     const [index,setIndex]= useState(0);
+    const [urls,setUrls] = useState([])
     useEffect(()=>{console.log(clip)},[clip])
     const vec = new Vector3()
+    const { gl } = useThree();
+    const canvas = gl.domElement;
+
+    const uploadDataURls=async ()=>{
+        if(urls.length>0&exportVid)
+        {
+      await fetch(Backend+"/vidMaker/generate/", {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({images: urls}),
+    }).then(response => {
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+      return response.blob();
+    })
+    .then(data => {
+      console.log('Success:', data);
+      console.log("XXX")
+      handleDownload(data)
+    })
+    .catch(error => {
+      console.error('Error:', error);
+    });
+        }
+        resetExportVideo();
+    }
+
+    const handleDownload = (blob) => {
+    var url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url
+    link.download = "output.mp4";
+    document.body.appendChild(link); // Append to body
+    link.click();
+    document.body.removeChild(link); // Remove from body
+  };
 
     useFrame((state,delta)=>{
       
@@ -30,6 +71,12 @@ function Scene({ orbitControlsRef, isRecording, setAnimation ,clip,setClip}) {
           if(index<clip.length)
           {
             orbitControlsRef.current.object.position.lerp(vec.set(clip[index].x,clip[index].y,clip[index].z),delta*5)
+            if(exportVid)
+            {
+              const dataURL = canvas.toDataURL('image/png');
+             
+              setUrls(prev=>[...prev,dataURL])
+            }
             setIndex(prev=>
             {
               prev++;
@@ -42,6 +89,10 @@ function Scene({ orbitControlsRef, isRecording, setAnimation ,clip,setClip}) {
 
             setClip([]);
             setIndex(0)
+            if(exportVid)
+            {
+              uploadDataURls()
+            }
           }
 
         }
@@ -98,11 +149,11 @@ function Scene({ orbitControlsRef, isRecording, setAnimation ,clip,setClip}) {
   return (
 
 
-    <Canvas>
+    <Canvas gl={{ preserveDrawingBuffer: true }}>
       <ambientLight intensity={3.5} />
       <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} />
       <Model url="https://modelviewer.dev/shared-assets/models/Astronaut.glb" />
-      <CamRecord orbitControlsRef={orbitControlsRef} isRecording={isRecording} setRecord={setRecord} clip ={clip} setClip={setClip}/>
+      <CamRecord orbitControlsRef={orbitControlsRef} isRecording={isRecording} setRecord={setRecord} clip ={clip} setClip={setClip} exportVid={exportVid} resetExportVideo={resetExportVideo}/>
     </Canvas>
   );
 }
@@ -110,12 +161,47 @@ function Scene({ orbitControlsRef, isRecording, setAnimation ,clip,setClip}) {
 function App() {
   const [animationName, setAnimationName] = useState("");
   const [isConfiguring, setIsConfiguring] = useState(false);
+  const [backendConnected, setBackendConnected] = useState(false);
+  const [exportVid, setExportVid] = useState(false);
+
   const [isRecording, setIsRecording] = useState(false);
   const [animations, setAnimations] = useState([]);
   const [animation, setAnimation] = useState([]);
   const [playedClip, setPlayedClip] = useState([]);
 
+
   const orbitControlsRef = useRef();
+
+  const backendCheck=async()=>{
+    await fetch(Backend+"/vidMaker/status/").then(response => {
+      if (!response.ok) {
+        setBackendConnected(false)
+
+        throw new Error('Network response was not ok');
+      }
+      return response.json();
+    })
+    .then(data => {
+      console.log('Success:', data);
+      if(data.available)
+      {
+        setBackendConnected(true)
+      } 
+      else
+      {
+        setBackendConnected(false)
+      }  
+    })
+    .catch(error => {
+      setBackendConnected(false)
+
+      console.error('Error:', error);
+    });
+  }
+
+  useEffect(() => {
+    backendCheck()
+  }, []);
 
   useEffect(() => {
     if (isRecording) {
@@ -140,6 +226,8 @@ function App() {
     }
   }, [isConfiguring]);
 
+  const resetExportVideo=()=>{setExportVid(false)}
+
   return (
     <div className="app">
       <div className="panel left-panel">
@@ -148,7 +236,9 @@ function App() {
           isRecording={isRecording}
           setAnimation={setAnimation}
           clip={playedClip}
-          setClip={setPlayedClip}
+          setClip={setPlayedClip} 
+          exportVid={exportVid}
+          resetExportVideo={resetExportVideo}
         />
       </div>
       <div className="panel right-panel">
@@ -182,18 +272,24 @@ function App() {
             {animations &&
               animations.length > 0 &&
               animations.map((a, index) => (
-                <div key={index}>
-                                  {console.log(a)}
+                <div key={index} style={{ display: "flex", gap: "10px" }}>
 
                   <span>{a.name+" "}</span>
                   <button
                     onClick={() => {
-                      console.log(a.clip);
                       setPlayedClip(a.clip)
                     }}
                   >
                     Play
                   </button>
+                  {backendConnected&&  <button
+                    onClick={() => {
+                      setPlayedClip(a.clip)
+                      setExportVid(true)
+                    }}
+                  >
+                    Export Video
+                  </button>}
                 </div>
               ))}
             <button
